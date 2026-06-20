@@ -1,29 +1,22 @@
 import os, json, sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
-
-# Импорты для AI – необязательны
-try:
-    import openai
-    from bs4 import BeautifulSoup
-    import requests as req_lib
-    AI_AVAILABLE = True
-except ImportError:
-    AI_AVAILABLE = False
+import requests
 
 app = Flask(__name__)
 CORS(app)
 
-# Конфигурация OpenAI
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-if OPENAI_API_KEY and AI_AVAILABLE:
-    openai.api_key = OPENAI_API_KEY
-else:
-    AI_AVAILABLE = False
+# Yandex GPT настройки
+YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "")
+YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID", "")
+AI_AVAILABLE = bool(YANDEX_API_KEY and YANDEX_FOLDER_ID)
 
 DB = 'events.db'
 
+# -------------------------------------------
+# База данных
+# -------------------------------------------
 def init_db():
     conn = sqlite3.connect(DB)
     c = conn.cursor()
@@ -57,7 +50,6 @@ def init_db():
 
 init_db()
 
-# Предзаполнение событий, если база пуста
 def seed_events():
     conn = sqlite3.connect(DB)
     c = conn.cursor()
@@ -76,22 +68,77 @@ def seed_events():
 
 seed_events()
 
-# Вспомогательные функции AI
+# -------------------------------------------
+# Вспомогательные функции
+# -------------------------------------------
 def ask_ai(prompt, max_tokens=500):
     if not AI_AVAILABLE:
         return None
+    url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
+    headers = {
+        "Authorization": f"Api-Key {YANDEX_API_KEY}",
+        "x-folder-id": YANDEX_FOLDER_ID
+    }
+    body = {
+        "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite",  # можно заменить на yandexgpt для лучшего качества
+        "completionOptions": {
+            "stream": False,
+            "temperature": 0.3,
+            "maxTokens": str(max_tokens)
+        },
+        "messages": [{"role": "user", "text": prompt}]
+    }
     try:
-        resp = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3, max_tokens=max_tokens
-        )
-        return resp.choices[0].message.content.strip()
+        resp = requests.post(url, json=body, headers=headers, timeout=15)
+        resp_json = resp.json()
+        if "result" in resp_json and resp_json["result"]["alternatives"]:
+            return resp_json["result"]["alternatives"][0]["message"]["text"]
+        else:
+            print("Yandex GPT error:", resp_json)
+            return None
     except Exception as e:
-        print(f"AI error: {e}")
+        print(f"AI request failed: {e}")
         return None
 
-# --------------- Базовые API ---------------
+def fallback_recommendations(user_id):
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute("SELECT * FROM events ORDER BY date LIMIT 5")
+    events = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return events
+
+def check_and_award_badges(user_id, conn):
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM user_attendance WHERE user_id = ?", (user_id,))
+    cnt = c.fetchone()[0]
+    badges = []
+    if cnt >= 1 and not has_badge(c, user_id, "Новичок"):
+        badges.append(("Новичок",))
+    if cnt >= 5 and not has_badge(c, user_id, "Исследователь"):
+        badges.append(("Исследователь",))
+    if cnt >= 10 and not has_badge(c, user_id, "Знаток событий"):
+        badges.append(("Знаток событий",))
+    c.execute("SELECT DISTINCT e.type FROM user_attendance ua JOIN events e ON ua.event_id = e.id WHERE ua.user_id = ?", (user_id,))
+    types = [t[0] for t in c.fetchall()]
+    if "еда" in types and not has_badge(c, user_id, "Гурман"):
+        badges.append(("Гурман",))
+    if "спорт" in types and not has_badge(c, user_id, "Спортсмен"):
+        badges.append(("Спортсмен",))
+    if "культура" in types and not has_badge(c, user_id, "Эстет"):
+        badges.append(("Эстет",))
+    for b in badges:
+        c.execute("INSERT OR IGNORE INTO badges (user_id, badge) VALUES (?,?)", (user_id, b[0]))
+    conn.commit()
+
+def has_badge(c, user_id, badge):
+    c.execute("SELECT 1 FROM badges WHERE user_id=? AND badge=?", (user_id, badge))
+    return c.fetchone() is not None
+
+# -------------------------------------------
+# API: события
+# -------------------------------------------
 @app.route('/api/events', methods=['GET'])
 def get_events():
     conn = sqlite3.connect(DB)
@@ -99,18 +146,19 @@ def get_events():
     c = conn.cursor()
     query = "SELECT * FROM events WHERE 1=1"
     params = []
-    for arg, col in [('date_from', 'date'), ('date_to', 'date'), ('type', 'type')]:
+    for arg, col in [('date_from', 'date'), ('date_to', 'date')]:
         val = request.args.get(arg)
         if val:
             if arg == 'date_from':
-                query += f" AND {col} >= ?"
+                query += " AND date >= ?"
                 params.append(val)
             elif arg == 'date_to':
-                query += f" AND {col} <= ?"
+                query += " AND date <= ?"
                 params.append(val)
-            elif arg == 'type' and val != 'all':
-                query += " AND type = ?"
-                params.append(val)
+    event_type = request.args.get('type')
+    if event_type and event_type != 'all':
+        query += " AND type = ?"
+        params.append(event_type)
     search = request.args.get('search')
     if search:
         query += " AND (title LIKE ? OR location LIKE ? OR description LIKE ?)"
@@ -150,7 +198,9 @@ def save_interests():
     conn.close()
     return jsonify({"status": "ok"})
 
-# --------------- Социальные функции ---------------
+# -------------------------------------------
+# Социальные функции
+# -------------------------------------------
 @app.route('/api/attend', methods=['POST'])
 def attend_event():
     data = request.json
@@ -160,7 +210,6 @@ def attend_event():
     c = conn.cursor()
     c.execute("INSERT OR IGNORE INTO user_attendance (user_id, event_id) VALUES (?,?)", (user_id, event_id))
     conn.commit()
-    # Выдача бейджей
     check_and_award_badges(user_id, conn)
     conn.close()
     return jsonify({"status": "ok"})
@@ -174,34 +223,6 @@ def event_attendees(event_id):
     conn.close()
     return jsonify({"count": len(attendees), "attendees": attendees})
 
-def check_and_award_badges(user_id, conn):
-    c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM user_attendance WHERE user_id = ?", (user_id,))
-    cnt = c.fetchone()[0]
-    badges = []
-    if cnt >= 1 and not has_badge(c, user_id, "Новичок"):
-        badges.append(("Новичок",))
-    if cnt >= 5 and not has_badge(c, user_id, "Исследователь"):
-        badges.append(("Исследователь",))
-    if cnt >= 10 and not has_badge(c, user_id, "Знаток событий"):
-        badges.append(("Знаток событий",))
-    # Проверка типов событий
-    c.execute("SELECT DISTINCT e.type FROM user_attendance ua JOIN events e ON ua.event_id = e.id WHERE ua.user_id = ?", (user_id,))
-    types = [t[0] for t in c.fetchall()]
-    if "еда" in types and not has_badge(c, user_id, "Гурман"):
-        badges.append(("Гурман",))
-    if "спорт" in types and not has_badge(c, user_id, "Спортсмен"):
-        badges.append(("Спортсмен",))
-    if "культура" in types and not has_badge(c, user_id, "Эстет"):
-        badges.append(("Эстет",))
-    for b in badges:
-        c.execute("INSERT OR IGNORE INTO badges (user_id, badge) VALUES (?,?)", (user_id, b[0]))
-    conn.commit()
-
-def has_badge(c, user_id, badge):
-    c.execute("SELECT 1 FROM badges WHERE user_id=? AND badge=?", (user_id, badge))
-    return c.fetchone() is not None
-
 @app.route('/api/badges/<user_id>')
 def get_badges(user_id):
     conn = sqlite3.connect(DB)
@@ -211,13 +232,14 @@ def get_badges(user_id):
     conn.close()
     return jsonify(badges)
 
-# --------------- AI-функции ---------------
+# -------------------------------------------
+# AI-функции (Yandex GPT)
+# -------------------------------------------
 @app.route('/api/ai/recommendations')
 def ai_recommendations():
     user_id = request.args.get('user_id', 'anonymous')
     if not AI_AVAILABLE:
         return jsonify(fallback_recommendations(user_id))
-    # ... логика та же, что и раньше, но с учётом интересов
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
@@ -229,21 +251,20 @@ def ai_recommendations():
     c.execute("SELECT * FROM events")
     all_events = [dict(r) for r in c.fetchall()]
     conn.close()
-    if not liked:
-        # Если нет лайков, но есть интересы – добавляем их в промпт
-        if interests:
-            prompt = f"Пользователь интересуется: {interests}. Выбери 5 событий из JSON и дай причину.\nJSON: {json.dumps(all_events[:20], ensure_ascii=False)}"
-        else:
-            return jsonify(all_events[:5])
-    else:
-        liked_text = "\n".join([f"- {e['title']}: {e['description']}" for e in liked])
-        prompt = f"Пользователю нравились:\n{liked_text}\nИнтересы: {interests}\nВыбери до 5 событий, наиболее подходящих, и укажи причину. Верни JSON [{event_id, reason}]."
-    resp = ask_ai(prompt)
-    if not resp:
+    # Формируем промпт
+    liked_text = "\n".join([f"- {e['title']}: {e['description']}" for e in liked]) if liked else "нет данных"
+    events_json = json.dumps(all_events[:30], ensure_ascii=False)
+    prompt = f"""Пользователь интересуется: {interests}.
+Ему понравились события:
+{liked_text}
+Доступные события: {events_json}
+Выбери до 5 наиболее подходящих событий и для каждого напиши короткую причину (1 предложение) на русском.
+Ответ верни строго в JSON-массиве: [{{"event_id": число, "reason": строка}}]"""
+    ai_resp = ask_ai(prompt, max_tokens=400)
+    if not ai_resp:
         return jsonify(fallback_recommendations(user_id))
-    # Парсим ответ и формируем результат
     try:
-        recs = json.loads(resp)
+        recs = json.loads(ai_resp.strip().lstrip('```json').rstrip('```').strip())
     except:
         return jsonify(fallback_recommendations(user_id))
     event_map = {e['id']: e for e in all_events}
@@ -251,29 +272,20 @@ def ai_recommendations():
     for rec in recs:
         ev = event_map.get(rec['event_id'])
         if ev:
-            ev['reason'] = rec.get('reason', '')
-            result.append(ev)
+            ev_copy = dict(ev)
+            ev_copy['reason'] = rec.get('reason', '')
+            result.append(ev_copy)
     return jsonify(result)
-
-def fallback_recommendations(user_id):
-    conn = sqlite3.connect(DB)
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute("SELECT * FROM events ORDER BY date LIMIT 5")
-    events = [dict(r) for r in c.fetchall()]
-    conn.close()
-    return events
 
 @app.route('/api/ai/plan', methods=['POST'])
 def ai_plan():
+    if not AI_AVAILABLE:
+        return jsonify({"plan": "AI сейчас недоступен"}), 503
     data = request.json
     user_id = data.get('user_id', 'anonymous')
     date = data.get('date', datetime.now().strftime('%Y-%m-%d'))
     lat = data.get('lat', 55.75)
     lon = data.get('lon', 37.62)
-    if not AI_AVAILABLE:
-        return jsonify({"error": "AI not available"}), 503
-    # Получаем события на эту дату и рядом (в радиусе ~10 км)
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
@@ -282,21 +294,26 @@ def ai_plan():
     conn.close()
     if not events_today:
         return jsonify({"plan": "На этот день событий не найдено."})
-    prompt = f"""Составь план на {date} для пользователя. Есть события: {json.dumps(events_today, ensure_ascii=False)}.
-Пользователь находится в точке ({lat},{lon}). Выбери 2-3 события, распредели их по времени, учти расстояния (1 км ≈ 3 мин пешком). Добавь рекомендацию, где пообедать или выпить кофе поблизости. Ответь в формате JSON: {{"plan": "описание плана", "events": [id1, id2]}}"""
-    resp = ask_ai(prompt)
-    if not resp:
+    prompt = f"""Составь план на {date} для пользователя.
+События: {json.dumps(events_today, ensure_ascii=False)}
+Текущая позиция: ({lat}, {lon}). Выбери 2-3 события, распредели по времени, учти перемещения (1 км ≈ 3 мин пешком).
+Добавь рекомендацию, где пообедать или выпить кофе поблизости.
+Ответь в JSON: {{"plan": "текст плана", "events": [id1, id2]}}"""
+    ai_resp = ask_ai(prompt, max_tokens=500)
+    if not ai_resp:
         return jsonify({"plan": "Не удалось составить план."})
-    return jsonify(json.loads(resp))
+    try:
+        return jsonify(json.loads(ai_resp.strip().lstrip('```json').rstrip('```').strip()))
+    except:
+        return jsonify({"plan": "Не удалось разобрать ответ AI."})
 
 @app.route('/api/ai/chat', methods=['POST'])
 def ai_chat():
+    if not AI_AVAILABLE:
+        return jsonify({"reply": "AI сейчас недоступен."})
     data = request.json
     message = data.get('message', '')
     user_id = data.get('user_id', 'anonymous')
-    if not message or not AI_AVAILABLE:
-        return jsonify({"reply": "Извините, AI сейчас недоступен."})
-    # Собираем контекст: интересы, лайки, предстоящие события
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
@@ -322,39 +339,44 @@ def ai_parse_url():
     if not url:
         return jsonify({"error": "URL required"}), 400
     try:
-        resp = req_lib.get(url, timeout=10)
+        from bs4 import BeautifulSoup
+        resp = requests.get(url, timeout=10)
         soup = BeautifulSoup(resp.text, 'html.parser')
         text = soup.get_text()[:5000]
     except Exception as e:
         return jsonify({"error": str(e)}), 400
-    prompt = f"""Извлеки события из текста, верни JSON-массив с полями: title, date (YYYY-MM-DD), time, location, type, price, description.
+    prompt = f"""Извлеки события из текста. Верни JSON-массив с полями: title, date (YYYY-MM-DD), time, location, type, price, description.
 Текст: {text}
 JSON:"""
     ai_resp = ask_ai(prompt, max_tokens=1000)
     if not ai_resp:
         return jsonify({"error": "AI failed"}), 500
     try:
-        events = json.loads(ai_resp)
+        events = json.loads(ai_resp.strip().lstrip('```json').rstrip('```').strip())
     except:
-        return jsonify({"error": "Invalid JSON from AI"}), 500
+        return jsonify({"error": "Invalid JSON"}), 500
     conn = sqlite3.connect(DB)
     c = conn.cursor()
-    added = []
+    added = 0
     for ev in events:
         if not ev.get('title') or not ev.get('date'):
             continue
         c.execute("INSERT INTO events (title, type, date, time, location, lat, lon, price, description, source_url) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                  (ev['title'], ev.get('type','другое'), ev['date'], ev.get('time','12:00'), ev.get('location',''), ev.get('lat',0), ev.get('lon',0), ev.get('price','бесплатно'), ev.get('description',''), url))
-        added.append(c.lastrowid)
+                  (ev['title'], ev.get('type','другое'), ev['date'], ev.get('time','12:00'), ev.get('location',''),
+                   ev.get('lat',0), ev.get('lon',0), ev.get('price','бесплатно'), ev.get('description',''), url))
+        added += 1
     conn.commit()
     conn.close()
-    return jsonify({"added": len(added)})
+    return jsonify({"added": added})
 
-# --------------- Статика и главная ---------------
+# -------------------------------------------
+# Главная страница
+# -------------------------------------------
 @app.route('/')
 def index():
     return render_template('index.html')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
+    
     
