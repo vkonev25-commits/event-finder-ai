@@ -57,10 +57,15 @@ def seed_events():
     if c.fetchone()[0] == 0:
         defaults = [
             ("Фестиваль уличной еды", "еда", "2026-06-20", "12:00", "Центральный парк", 55.751244, 37.618423, "бесплатно", "Лучшие фудтраки города"),
-            ("Выставка «История края»", "культура", "2026-06-22", "10:00", "Краеведческий музей", 55.755826, 37.6173, "300 ₽", "Уникальные экспонаты"),
+            ("Выставка «История края»", "выставка", "2026-06-22", "10:00", "Краеведческий музей", 55.755826, 37.6173, "300 ₽", "Уникальные экспонаты"),
             ("Ночной велопробег", "спорт", "2026-06-25", "22:00", "Набережная реки", 55.7485, 37.6184, "бесплатно", "Маршрут 20 км"),
-            ("Джазовый вечер", "культура", "2026-06-20", "19:00", "Сад Эрмитаж", 55.7702, 37.6096, "500 ₽", "Живая музыка"),
-            ("Гончарный мастер-класс", "дети", "2026-06-24", "11:00", "Арт-пространство", 55.7616, 37.5932, "800 ₽", "Для детей и взрослых")
+            ("Джазовый вечер", "музыка", "2026-06-20", "19:00", "Сад Эрмитаж", 55.7702, 37.6096, "500 ₽", "Живая музыка"),
+            ("Гончарный мастер-класс", "мастер-класс", "2026-06-24", "11:00", "Арт-пространство", 55.7616, 37.5932, "800 ₽", "Для детей и взрослых"),
+            ("Театральная премьера", "театр", "2026-06-23", "19:00", "Драмтеатр", 55.7600, 37.6200, "1000 ₽", "Спектакль по классике"),
+            ("Кино под открытым небом", "кино", "2026-06-21", "21:00", "Парк Горького", 55.7510, 37.6170, "бесплатно", "Ретро-фильмы"),
+            ("Эко-прогулка", "природа", "2026-06-26", "09:00", "Лесопарк", 55.7800, 37.5900, "бесплатно", "Пеший маршрут с гидом"),
+            ("Ночной клуб", "ночная_жизнь", "2026-06-27", "23:00", "Клуб 'Тоннель'", 55.7700, 37.6100, "1500 ₽", "Лучшие диджеи"),
+            ("Ярмарка ремёсел", "ярмарка", "2026-06-28", "10:00", "Площадь", 55.7550, 37.6180, "бесплатно", "Изделия ручной работы")
         ]
         c.executemany("INSERT INTO events (title, type, date, time, location, lat, lon, price, description) VALUES (?,?,?,?,?,?,?,?,?)", defaults)
         conn.commit()
@@ -72,6 +77,7 @@ seed_events()
 # Вспомогательные функции
 # -------------------------------------------
 def ask_ai(prompt, max_tokens=500):
+    """Отправляет промпт в Yandex GPT и возвращает текст ответа или None при ошибке"""
     if not AI_AVAILABLE:
         return None
     url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
@@ -80,7 +86,7 @@ def ask_ai(prompt, max_tokens=500):
         "x-folder-id": YANDEX_FOLDER_ID
     }
     body = {
-        "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite",  # можно заменить на yandexgpt для лучшего качества
+        "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite",
         "completionOptions": {
             "stream": False,
             "temperature": 0.3,
@@ -90,17 +96,22 @@ def ask_ai(prompt, max_tokens=500):
     }
     try:
         resp = requests.post(url, json=body, headers=headers, timeout=15)
-        resp_json = resp.json()
-        if "result" in resp_json and resp_json["result"]["alternatives"]:
-            return resp_json["result"]["alternatives"][0]["message"]["text"]
+        # Логируем статус для отладки
+        if resp.status_code != 200:
+            print(f"Yandex GPT error {resp.status_code}: {resp.text}")
+            return None
+        data = resp.json()
+        if "result" in data and data["result"]["alternatives"]:
+            return data["result"]["alternatives"][0]["message"]["text"]
         else:
-            print("Yandex GPT error:", resp_json)
+            print("Yandex GPT empty response:", data)
             return None
     except Exception as e:
         print(f"AI request failed: {e}")
         return None
 
-def fallback_recommendations(user_id):
+def fallback_recommendations(user_id=None):
+    """Возвращает 5 ближайших событий, если AI недоступен"""
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
@@ -120,14 +131,26 @@ def check_and_award_badges(user_id, conn):
         badges.append(("Исследователь",))
     if cnt >= 10 and not has_badge(c, user_id, "Знаток событий"):
         badges.append(("Знаток событий",))
+    # Специализированные бейджи
     c.execute("SELECT DISTINCT e.type FROM user_attendance ua JOIN events e ON ua.event_id = e.id WHERE ua.user_id = ?", (user_id,))
     types = [t[0] for t in c.fetchall()]
-    if "еда" in types and not has_badge(c, user_id, "Гурман"):
-        badges.append(("Гурман",))
-    if "спорт" in types and not has_badge(c, user_id, "Спортсмен"):
-        badges.append(("Спортсмен",))
-    if "культура" in types and not has_badge(c, user_id, "Эстет"):
-        badges.append(("Эстет",))
+    badge_map = {
+        "еда": "Гурман",
+        "спорт": "Спортсмен",
+        "культура": "Эстет",
+        "музыка": "Мелодия",
+        "театр": "Театрал",
+        "выставка": "Знаток искусства",
+        "кино": "Киноман",
+        "природа": "Эко-воин",
+        "ночная_жизнь": "Ночной житель",
+        "ярмарка": "Коллекционер",
+        "мастер-класс": "Мастеровитый",
+        "экскурсия": "Следопыт"
+    }
+    for t in types:
+        if t in badge_map and not has_badge(c, user_id, badge_map[t]):
+            badges.append((badge_map[t],))
     for b in badges:
         c.execute("INSERT OR IGNORE INTO badges (user_id, badge) VALUES (?,?)", (user_id, b[0]))
     conn.commit()
@@ -146,19 +169,21 @@ def get_events():
     c = conn.cursor()
     query = "SELECT * FROM events WHERE 1=1"
     params = []
-    for arg, col in [('date_from', 'date'), ('date_to', 'date')]:
-        val = request.args.get(arg)
-        if val:
-            if arg == 'date_from':
-                query += " AND date >= ?"
-                params.append(val)
-            elif arg == 'date_to':
-                query += " AND date <= ?"
-                params.append(val)
+    # Даты
+    date_from = request.args.get('date_from')
+    date_to = request.args.get('date_to')
+    if date_from:
+        query += " AND date >= ?"
+        params.append(date_from)
+    if date_to:
+        query += " AND date <= ?"
+        params.append(date_to)
+    # Тип
     event_type = request.args.get('type')
     if event_type and event_type != 'all':
         query += " AND type = ?"
         params.append(event_type)
+    # Поиск
     search = request.args.get('search')
     if search:
         query += " AND (title LIKE ? OR location LIKE ? OR description LIKE ?)"
@@ -239,7 +264,7 @@ def get_badges(user_id):
 def ai_recommendations():
     user_id = request.args.get('user_id', 'anonymous')
     if not AI_AVAILABLE:
-        return jsonify(fallback_recommendations(user_id))
+        return jsonify(fallback_recommendations())
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
@@ -251,7 +276,6 @@ def ai_recommendations():
     c.execute("SELECT * FROM events")
     all_events = [dict(r) for r in c.fetchall()]
     conn.close()
-    # Формируем промпт
     liked_text = "\n".join([f"- {e['title']}: {e['description']}" for e in liked]) if liked else "нет данных"
     events_json = json.dumps(all_events[:30], ensure_ascii=False)
     prompt = f"""Пользователь интересуется: {interests}.
@@ -262,11 +286,11 @@ def ai_recommendations():
 Ответ верни строго в JSON-массиве: [{{"event_id": число, "reason": строка}}]"""
     ai_resp = ask_ai(prompt, max_tokens=400)
     if not ai_resp:
-        return jsonify(fallback_recommendations(user_id))
+        return jsonify(fallback_recommendations())
     try:
         recs = json.loads(ai_resp.strip().lstrip('```json').rstrip('```').strip())
     except:
-        return jsonify(fallback_recommendations(user_id))
+        return jsonify(fallback_recommendations())
     event_map = {e['id']: e for e in all_events}
     result = []
     for rec in recs:
@@ -378,5 +402,4 @@ def index():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
-    
     
