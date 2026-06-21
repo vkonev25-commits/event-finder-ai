@@ -34,9 +34,7 @@
             padding: 15px; text-align: center; font-size: 1.2em; font-weight: bold;
             display: flex; align-items: center; justify-content: space-between;
         }
-        #filters {
-            padding: 10px; background: white; border-bottom: 1px solid #ddd;
-        }
+        #filters { padding: 10px; background: white; border-bottom: 1px solid #ddd; }
         .types-scroll {
             display: flex; gap: 8px; overflow-x: auto; padding: 5px 0;
             -webkit-overflow-scrolling: touch;
@@ -74,7 +72,7 @@
         .like-btn.liked { animation: heartPop 0.3s; color: red; }
         @keyframes heartPop { 0%{transform: scale(1);} 50%{transform: scale(1.3);} 100%{transform: scale(1);} }
         .attend-btn { background: #e8f5e9; border: none; padding: 5px 10px; border-radius: 12px; font-size: 0.8em; cursor: pointer; }
-        .map-link { background: none; border: none; font-size: 1.2em; cursor: pointer; padding: 0 5px; }
+        .map-link { background: none; border: none; font-size: 1.2em; cursor: pointer; padding: 0 5px; text-decoration: none; }
         #map-container { height: 300px; flex-shrink: 0; }
         #map { width: 100%; height: 100%; }
         #ai-btn, #plan-btn {
@@ -124,6 +122,7 @@
             <button class="btn" onclick="finishOnboarding()">Начать!</button>
         </div>
     </div>
+
     <!-- Выбор интересов -->
     <div id="interests-screen" style="display:none">
         <h2>Что вам интересно?</h2>
@@ -131,6 +130,7 @@
         <button class="btn" onclick="saveInterests()">Сохранить</button>
         <button class="btn btn-outline" onclick="skipInterests()">Пропустить</button>
     </div>
+
     <!-- Основное приложение -->
     <div id="main-app">
         <div id="offline-indicator" class="offline-indicator">Офлайн-режим</div>
@@ -144,9 +144,6 @@
                 <input type="text" id="search" placeholder="🔍 Поиск...">
                 <input type="date" id="date_from">
                 <input type="date" id="date_to">
-                <select id="type-select" style="display:none">
-                    <option value="all">Все</option>
-                </select>
             </div>
         </div>
         <div id="list-container"></div>
@@ -154,12 +151,15 @@
             <div id="map"></div>
         </div>
     </div>
+
     <!-- AI кнопки -->
     <button id="ai-btn" onclick="openRecommendations()" title="AI рекомендации">🤖</button>
     <button id="plan-btn" onclick="openPlanModal()" title="План на день">📅</button>
+
     <!-- Модальные окна -->
     <div id="rec-modal" class="modal" style="display:none"><div class="modal-content" id="rec-content"></div></div>
     <div id="plan-modal" class="modal" style="display:none"><div class="modal-content" id="plan-content"></div></div>
+
     <!-- Чат-бот -->
     <div id="chat-widget">
         <div id="chat-messages"></div>
@@ -205,6 +205,7 @@
         }
         function skipInterests() {
             document.getElementById('interests-screen').style.display = 'none';
+            localStorage.setItem('onboarded', '1');
         }
         async function saveInterests() {
             const selected = [...document.querySelectorAll('#interests-tags .tag.selected')].map(t => t.textContent).join(',');
@@ -319,11 +320,24 @@
             });
         }
 
-        // AI
+        // AI Рекомендации (с геолокацией)
         async function openRecommendations() {
             document.getElementById('rec-modal').style.display = 'flex';
             document.getElementById('rec-content').innerHTML = '<p>Загрузка...</p>';
-            const resp = await fetch(`/api/ai/recommendations?user_id=${userId}`);
+            let lat, lon;
+            if (navigator.geolocation) {
+                try {
+                    const pos = await new Promise((resolve, reject) =>
+                        navigator.geolocation.getCurrentPosition(resolve, reject)
+                    );
+                    lat = pos.coords.latitude;
+                    lon = pos.coords.longitude;
+                } catch(e) { /* без координат */ }
+            }
+            const params = new URLSearchParams({ user_id: userId });
+            if (lat) params.append('lat', lat);
+            if (lon) params.append('lon', lon);
+            const resp = await fetch('/api/ai/recommendations?' + params);
             const recs = await resp.json();
             const html = recs.map(r => `
                 <div class="event-card type-${r.type}" onclick="map.setView([${r.lat},${r.lon}],15);document.getElementById('rec-modal').style.display='none'">
@@ -334,6 +348,8 @@
             `).join('');
             document.getElementById('rec-content').innerHTML = html || 'Нет рекомендаций. Поставьте лайки.';
         }
+
+        // План на день
         async function openPlanModal() {
             document.getElementById('plan-modal').style.display = 'flex';
             document.getElementById('plan-content').innerHTML = '<p>Составляем план...</p>';
@@ -348,7 +364,8 @@
                 document.getElementById('plan-content').innerHTML = 'Не удалось получить геолокацию.';
             });
         }
-        // Чат
+
+        // Чат-бот
         document.getElementById('ai-btn').addEventListener('dblclick', () => {
             const chat = document.getElementById('chat-widget');
             chat.style.display = chat.style.display === 'flex' ? 'none' : 'flex';
@@ -370,6 +387,7 @@
             chatMessages.innerHTML += `<div style="text-align:left; margin:5px"><b>🤖 AI:</b> ${data.reply}</div>`;
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
+
         // Бейджи
         async function showBadges() {
             const resp = await fetch('/api/badges/' + userId);
