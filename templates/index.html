@@ -10,39 +10,92 @@
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Segoe UI', sans-serif; background: #f5f5f5; height: 100vh; display: flex; flex-direction: column; }
-        #onboarding, #interests-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #fff; z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; }
-        .onboard-slide { text-align: center; }
+        #onboarding, #interests-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #fff; z-index: 2000; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; padding: 20px; text-align: center;
+        }
         .onboard-slide h2 { margin: 20px 0; }
         .onboard-slide img { width: 150px; margin: 20px; }
-        .btn { background: #2e7d32; color: white; border: none; padding: 12px 24px; border-radius: 25px; font-size: 1em; cursor: pointer; margin-top: 20px; }
+        .btn {
+            background: #2e7d32; color: white; border: none; padding: 12px 24px;
+            border-radius: 25px; font-size: 1em; cursor: pointer; margin: 8px;
+        }
         .btn-outline { background: transparent; border: 2px solid #2e7d32; color: #2e7d32; }
-        .tag { display: inline-block; padding: 8px 16px; margin: 6px; background: #e8f5e9; border-radius: 20px; cursor: pointer; }
+        .tag {
+            display: inline-block; padding: 8px 16px; margin: 6px;
+            background: #e8f5e9; border-radius: 20px; cursor: pointer;
+            white-space: nowrap;
+        }
         .tag.selected { background: #2e7d32; color: white; }
         #main-app { flex: 1; display: flex; flex-direction: column; }
-        #header { background: linear-gradient(135deg, #2e7d32, #1b5e20); color: white; padding: 15px; text-align: center; font-size: 1.2em; font-weight: bold; display: flex; align-items: center; justify-content: space-between; }
-        #filters { padding: 10px; background: white; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; border-bottom: 1px solid #ddd; }
-        #filters input, #filters select { flex: 1 1 130px; padding: 10px; border: 1px solid #ccc; border-radius: 20px; font-size: 0.9em; }
+        #header {
+            background: linear-gradient(135deg, #2e7d32, #1b5e20); color: white;
+            padding: 15px; text-align: center; font-size: 1.2em; font-weight: bold;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        #filters {
+            padding: 10px; background: white; border-bottom: 1px solid #ddd;
+        }
+        .types-scroll {
+            display: flex; gap: 8px; overflow-x: auto; padding: 5px 0;
+            -webkit-overflow-scrolling: touch;
+        }
+        .types-scroll .tag { font-size: 0.85em; padding: 6px 12px; }
+        #search-row {
+            display: flex; gap: 8px; margin-top: 8px;
+        }
+        #search-row input, #search-row select {
+            flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 20px; font-size: 0.9em;
+        }
         #list-container { flex: 1; overflow-y: auto; padding: 10px; }
-        .event-card { background: white; border-radius: 16px; padding: 15px; margin-bottom: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); transition: 0.2s; position: relative; border-left: 5px solid #ccc; }
+        .event-card {
+            background: white; border-radius: 16px; padding: 15px; margin-bottom: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06); transition: 0.2s; position: relative;
+            border-left: 5px solid #ccc;
+        }
         .event-card.type-еда { border-left-color: #ff9800; }
         .event-card.type-культура { border-left-color: #9c27b0; }
         .event-card.type-спорт { border-left-color: #4caf50; }
         .event-card.type-дети { border-left-color: #ffc107; }
+        .event-card.type-музыка { border-left-color: #e91e63; }
+        .event-card.type-театр { border-left-color: #673ab7; }
+        .event-card.type-выставка { border-left-color: #3f51b5; }
+        .event-card.type-кино { border-left-color: #795548; }
+        .event-card.type-ярмарка { border-left-color: #ff5722; }
+        .event-card.type-природа { border-left-color: #8bc34a; }
+        .event-card.type-экскурсия { border-left-color: #009688; }
+        .event-card.type-ночная_жизнь { border-left-color: #607d8b; }
+        .event-card.type-мастер-класс { border-left-color: #ff9800; }
         .event-card h3 { margin-bottom: 5px; display: flex; justify-content: space-between; align-items: start; font-size: 1.1em; }
         .event-card .meta { font-size: 0.8em; color: #555; display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
-        .badge { padding: 2px 8px; border-radius: 12px; font-size: 0.7em; display: inline-block; color: white; }
+        .badge { padding: 2px 8px; border-radius: 12px; font-size: 0.7em; display: inline-block; color: white; background: #2196F3; }
         .like-btn { background: none; border: none; font-size: 1.5em; cursor: pointer; }
         .like-btn.liked { animation: heartPop 0.3s; color: red; }
         @keyframes heartPop { 0%{transform: scale(1);} 50%{transform: scale(1.3);} 100%{transform: scale(1);} }
         .attend-btn { background: #e8f5e9; border: none; padding: 5px 10px; border-radius: 12px; font-size: 0.8em; cursor: pointer; }
+        .map-link { background: none; border: none; font-size: 1.2em; cursor: pointer; padding: 0 5px; }
         #map-container { height: 300px; flex-shrink: 0; }
         #map { width: 100%; height: 100%; }
-        #ai-btn, #plan-btn { background: #ff9800; color: white; border: none; border-radius: 50%; width: 50px; height: 50px; font-size: 1.5em; position: fixed; bottom: 20px; right: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); cursor: pointer; }
+        #ai-btn, #plan-btn {
+            background: #ff9800; color: white; border: none; border-radius: 50%;
+            width: 50px; height: 50px; font-size: 1.5em; position: fixed;
+            bottom: 20px; right: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); cursor: pointer; z-index: 1500;
+        }
         #plan-btn { right: 80px; background: #2196F3; }
-        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2000; }
-        .modal-content { background: white; width: 90%; max-width: 400px; border-radius: 20px; padding: 20px; max-height: 80%; overflow-y: auto; }
+        .modal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2000;
+        }
+        .modal-content {
+            background: white; width: 90%; max-width: 400px; border-radius: 20px; padding: 20px; max-height: 80%; overflow-y: auto;
+        }
         .close-btn { float: right; background: none; border: none; font-size: 1.5em; cursor: pointer; }
-        #chat-widget { position: fixed; bottom: 80px; right: 20px; width: 300px; max-height: 400px; background: white; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); display: none; flex-direction: column; z-index: 1500; }
+        #chat-widget {
+            position: fixed; bottom: 80px; right: 20px; width: 300px; max-height: 400px;
+            background: white; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            display: none; flex-direction: column; z-index: 1500;
+        }
         #chat-messages { flex: 1; padding: 15px; overflow-y: auto; min-height: 200px; }
         #chat-input-area { display: flex; padding: 10px; border-top: 1px solid #eee; }
         #chat-input { flex: 1; border: 1px solid #ccc; border-radius: 20px; padding: 8px 12px; }
@@ -86,23 +139,22 @@
             <span id="profile-btn" style="cursor:pointer">👤</span>
         </div>
         <div id="filters">
-            <input type="text" id="search" placeholder="🔍 Поиск...">
-            <input type="date" id="date_from">
-            <input type="date" id="date_to">
-            <select id="type">
-                <option value="all">Все типы</option>
-                <option value="культура">Культура</option>
-                <option value="спорт">Спорт</option>
-                <option value="еда">Еда</option>
-                <option value="дети">Дети</option>
-            </select>
+            <div class="types-scroll" id="type-filters"></div>
+            <div id="search-row">
+                <input type="text" id="search" placeholder="🔍 Поиск...">
+                <input type="date" id="date_from">
+                <input type="date" id="date_to">
+                <select id="type-select" style="display:none">
+                    <option value="all">Все</option>
+                </select>
+            </div>
         </div>
         <div id="list-container"></div>
         <div id="map-container">
             <div id="map"></div>
         </div>
     </div>
-    <!-- Кнопки AI -->
+    <!-- AI кнопки -->
     <button id="ai-btn" onclick="openRecommendations()" title="AI рекомендации">🤖</button>
     <button id="plan-btn" onclick="openPlanModal()" title="План на день">📅</button>
     <!-- Модальные окна -->
@@ -116,27 +168,33 @@
             <button class="btn" onclick="sendChat()" style="margin-left:5px; padding:8px 12px;">➤</button>
         </div>
     </div>
+
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // Инициализация
         const userId = localStorage.getItem('userId') || 'user_' + Date.now();
         localStorage.setItem('userId', userId);
         let currentEvents = [];
+        const allTypes = [
+            'еда', 'культура', 'спорт', 'дети', 'музыка', 'театр', 'выставка',
+            'кино', 'ярмарка', 'природа', 'экскурсия', 'ночная_жизнь', 'мастер-класс'
+        ];
+        let selectedType = 'all';
+
+        // Карта
+        const map = L.map('map').setView([55.751244, 37.618423], 12);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {attribution:'© OpenStreetMap'}).addTo(map);
+        const markersLayer = L.layerGroup().addTo(map);
 
         // Онбординг
         function nextSlide(num) {
-            document.getElementById('slide1').style.display = 'none';
-            document.getElementById('slide2').style.display = 'none';
-            document.getElementById('slide3').style.display = 'none';
+            document.querySelectorAll('.onboard-slide').forEach(s => s.style.display = 'none');
             document.getElementById('slide' + num).style.display = 'block';
         }
         function finishOnboarding() {
             document.getElementById('onboarding').style.display = 'none';
             document.getElementById('interests-screen').style.display = 'flex';
-            // подготовить теги
-            const tags = ['еда', 'культура', 'спорт', 'дети'];
             const container = document.getElementById('interests-tags');
-            tags.forEach(t => {
+            allTypes.forEach(t => {
                 const el = document.createElement('span');
                 el.className = 'tag';
                 el.textContent = t;
@@ -149,19 +207,37 @@
             document.getElementById('interests-screen').style.display = 'none';
         }
         async function saveInterests() {
-            const selected = [...document.querySelectorAll('.tag.selected')].map(t => t.textContent).join(',');
+            const selected = [...document.querySelectorAll('#interests-tags .tag.selected')].map(t => t.textContent).join(',');
             await fetch('/api/interests', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({user_id: userId, interests: selected})
             });
             document.getElementById('interests-screen').style.display = 'none';
+            localStorage.setItem('onboarded', '1');
         }
 
-        // Карта
-        const map = L.map('map').setView([55.751244, 37.618423], 12);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {attribution:'© OpenStreetMap'}).addTo(map);
-        const markersLayer = L.layerGroup().addTo(map);
+        // Фильтры типов
+        function buildTypeFilters() {
+            const container = document.getElementById('type-filters');
+            container.innerHTML = '';
+            const allBtn = document.createElement('span');
+            allBtn.className = 'tag' + (selectedType === 'all' ? ' selected' : '');
+            allBtn.textContent = 'Все';
+            allBtn.onclick = () => { selectedType = 'all'; updateFilters(); };
+            container.appendChild(allBtn);
+            allTypes.forEach(t => {
+                const btn = document.createElement('span');
+                btn.className = 'tag' + (selectedType === t ? ' selected' : '');
+                btn.textContent = t;
+                btn.onclick = () => { selectedType = (selectedType === t ? 'all' : t); updateFilters(); };
+                container.appendChild(btn);
+            });
+        }
+        function updateFilters() {
+            buildTypeFilters();
+            loadEvents();
+        }
 
         // Загрузка событий
         async function loadEvents() {
@@ -169,14 +245,14 @@
                 search: document.getElementById('search').value,
                 date_from: document.getElementById('date_from').value,
                 date_to: document.getElementById('date_to').value,
-                type: document.getElementById('type').value
+                type: selectedType
             });
             try {
                 const resp = await fetch('/api/events?' + params);
                 currentEvents = await resp.json();
                 renderList(currentEvents);
                 renderMarkers(currentEvents);
-            } catch(e) { /* офлайн */ }
+            } catch(e) { console.log('Offline or error', e); }
         }
         function renderList(events) {
             const container = document.getElementById('list-container');
@@ -184,16 +260,22 @@
             events.forEach(ev => {
                 const card = document.createElement('div');
                 card.className = `event-card type-${ev.type}`;
+                const yandexUrl = `https://yandex.ru/maps/?ll=${ev.lon},${ev.lat}&z=16&text=${encodeURIComponent(ev.title)}`;
+                const dgisUrl = `https://2gis.ru/geo/${ev.lon},${ev.lat}/center/${ev.lon},${ev.lat}/zoom/16`;
                 card.innerHTML = `
                     <span class="like-btn" data-id="${ev.id}">🤍</span>
-                    <h3>${ev.title} <span class="badge" style="background:#2196F3">${ev.type}</span></h3>
+                    <h3>${ev.title} <span class="badge">${ev.type}</span></h3>
                     <div class="meta">
                         <span>📅 ${ev.date} ${ev.time}</span>
                         <span>📍 ${ev.location}</span>
                         <span>💰 ${ev.price}</span>
                     </div>
-                    <button class="attend-btn" data-id="${ev.id}">Пойду 👍</button>
-                    <span class="attendees-count" id="count-${ev.id}"></span>
+                    <div style="margin-top: 8px; display: flex; gap: 10px; align-items: center;">
+                        <button class="attend-btn" data-id="${ev.id}">Пойду 👍</button>
+                        <span class="attendees-count" id="count-${ev.id}"></span>
+                        <a href="${yandexUrl}" target="_blank" class="map-link" title="Открыть в Яндекс Картах">📍Я</a>
+                        <a href="${dgisUrl}" target="_blank" class="map-link" title="Открыть в 2ГИС">📍2</a>
+                    </div>
                 `;
                 container.appendChild(card);
                 // лайк
@@ -217,21 +299,27 @@
                     });
                     loadAttendees(ev.id);
                 });
-                card.addEventListener('click', () => map.setView([ev.lat, ev.lon], 15));
+                card.addEventListener('click', (e) => {
+                    if (e.target.tagName === 'A') return; // не перехватывать переход по ссылкам
+                    map.setView([ev.lat, ev.lon], 15);
+                });
                 loadAttendees(ev.id);
             });
         }
         async function loadAttendees(eventId) {
             const resp = await fetch(`/api/event/${eventId}/attendees`);
             const data = await resp.json();
-            document.getElementById(`count-${eventId}`).textContent = data.count ? ` (${data.count})` : '';
+            const span = document.getElementById(`count-${eventId}`);
+            if (span) span.textContent = data.count ? ` (${data.count})` : '';
         }
         function renderMarkers(events) {
             markersLayer.clearLayers();
-            events.forEach(ev => L.marker([ev.lat, ev.lon]).addTo(markersLayer).bindPopup(`<b>${ev.title}</b><br>${ev.date} ${ev.time}`));
+            events.forEach(ev => {
+                L.marker([ev.lat, ev.lon]).addTo(markersLayer).bindPopup(`<b>${ev.title}</b><br>${ev.date} ${ev.time}`);
+            });
         }
 
-        // AI Рекомендации
+        // AI
         async function openRecommendations() {
             document.getElementById('rec-modal').style.display = 'flex';
             document.getElementById('rec-content').innerHTML = '<p>Загрузка...</p>';
@@ -244,10 +332,8 @@
                     ${r.reason ? `<div style="color:#e65100; font-style:italic;">💡 ${r.reason}</div>` : ''}
                 </div>
             `).join('');
-            document.getElementById('rec-content').innerHTML = html || 'Нет рекомендаций. Поставьте лайки событиям.';
+            document.getElementById('rec-content').innerHTML = html || 'Нет рекомендаций. Поставьте лайки.';
         }
-
-        // План на день
         async function openPlanModal() {
             document.getElementById('plan-modal').style.display = 'flex';
             document.getElementById('plan-content').innerHTML = '<p>Составляем план...</p>';
@@ -262,10 +348,10 @@
                 document.getElementById('plan-content').innerHTML = 'Не удалось получить геолокацию.';
             });
         }
-
-        // Чат-бот
+        // Чат
         document.getElementById('ai-btn').addEventListener('dblclick', () => {
-            document.getElementById('chat-widget').style.display = 'flex';
+            const chat = document.getElementById('chat-widget');
+            chat.style.display = chat.style.display === 'flex' ? 'none' : 'flex';
         });
         async function sendChat() {
             const input = document.getElementById('chat-input');
@@ -284,15 +370,6 @@
             chatMessages.innerHTML += `<div style="text-align:left; margin:5px"><b>🤖 AI:</b> ${data.reply}</div>`;
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
-
-        // Push-уведомления
-        if ('Notification' in window && Notification.permission === 'default') {
-            Notification.requestPermission();
-        }
-        function notify(title, body) {
-            if (Notification.permission === 'granted') new Notification(title, {body});
-        }
-
         // Бейджи
         async function showBadges() {
             const resp = await fetch('/api/badges/' + userId);
@@ -304,19 +381,22 @@
         // Офлайн-индикатор
         window.addEventListener('online', () => document.getElementById('offline-indicator').style.display = 'none');
         window.addEventListener('offline', () => document.getElementById('offline-indicator').style.display = 'block');
+        if (!navigator.onLine) document.getElementById('offline-indicator').style.display = 'block';
 
-        // Фильтры
-        ['search','date_from','date_to','type'].forEach(id => document.getElementById(id).addEventListener('input', loadEvents));
         // Закрытие модалок
         document.querySelectorAll('.modal').forEach(m => m.addEventListener('click', function(e){ if(e.target===this) this.style.display='none'; }));
 
-        // Старт
+        // Инициализация
+        buildTypeFilters();
         if (!localStorage.getItem('onboarded')) {
             document.getElementById('main-app').style.display = 'none';
         } else {
             document.getElementById('onboarding').style.display = 'none';
             document.getElementById('interests-screen').style.display = 'none';
         }
+        document.getElementById('search').addEventListener('input', loadEvents);
+        document.getElementById('date_from').addEventListener('change', loadEvents);
+        document.getElementById('date_to').addEventListener('change', loadEvents);
         loadEvents();
     </script>
 </body>
