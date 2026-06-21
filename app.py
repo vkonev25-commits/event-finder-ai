@@ -12,7 +12,7 @@ YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "")
 YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID", "")
 AI_AVAILABLE = bool(YANDEX_API_KEY and YANDEX_FOLDER_ID)
 
-# Отладочный вывод
+# Отладочный вывод при старте
 print(f"AI_AVAILABLE: {AI_AVAILABLE} (key={'set' if YANDEX_API_KEY else 'missing'}, folder={'set' if YANDEX_FOLDER_ID else 'missing'})")
 
 DB = 'events.db'
@@ -89,7 +89,7 @@ def ask_ai(prompt, max_tokens=500):
         "x-folder-id": YANDEX_FOLDER_ID
     }
     body = {
-        "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt",  # основная модель
+        "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite",  # можно временно lite для теста
         "completionOptions": {
             "stream": False,
             "temperature": 0.3,
@@ -98,15 +98,16 @@ def ask_ai(prompt, max_tokens=500):
         "messages": [{"role": "user", "text": prompt}]
     }
     try:
-        resp = requests.post(url, json=body, headers=headers, timeout=15)
+        resp = requests.post(url, json=body, headers=headers, timeout=30)
+        print(f"Yandex GPT status: {resp.status_code}")
+        print(f"Yandex GPT response body: {resp.text}")  # <-- полный ответ в логах
         if resp.status_code != 200:
-            print(f"Yandex GPT error {resp.status_code}: {resp.text}")
             return None
         data = resp.json()
         if "result" in data and data["result"]["alternatives"]:
             return data["result"]["alternatives"][0]["message"]["text"]
         else:
-            print("Yandex GPT empty response:", data)
+            print("Yandex GPT returned no alternatives:", data)
             return None
     except Exception as e:
         print(f"AI request failed: {e}")
@@ -118,7 +119,6 @@ def fallback_recommendations(lat=None, lon=None):
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
     if lat is not None and lon is not None:
-        # Сортировка по расстоянию (приблизительно)
         c.execute("SELECT *, ((lat - ?)*(lat - ?) + (lon - ?)*(lon - ?)) AS dist FROM events ORDER BY dist LIMIT 5", (lat, lat, lon, lon))
     else:
         c.execute("SELECT * FROM events ORDER BY date LIMIT 5")
@@ -265,7 +265,6 @@ def get_badges(user_id):
 @app.route('/api/ai/recommendations')
 def ai_recommendations():
     user_id = request.args.get('user_id', 'anonymous')
-    # Поддержка геолокации для fallback
     lat = request.args.get('lat', type=float)
     lon = request.args.get('lon', type=float)
 
@@ -310,7 +309,6 @@ def ai_recommendations():
             result.append(ev_copy)
     return jsonify(result)
 
-# Остальные эндпоинты (plan, chat, parse-url) остаются без изменений
 @app.route('/api/ai/plan', methods=['POST'])
 def ai_plan():
     if not AI_AVAILABLE:
