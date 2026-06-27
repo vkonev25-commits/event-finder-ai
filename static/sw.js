@@ -4,9 +4,10 @@ const STATIC_ASSETS = [
   '/static/manifest.json',
   '/static/icon-192.png',
   '/static/icon-512.png',
+  '/static/style.css',
+  '/static/app.js',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
-  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
-  // можно добавить другие критические ресурсы
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
 ];
 
 // Установка и предварительное кеширование статики
