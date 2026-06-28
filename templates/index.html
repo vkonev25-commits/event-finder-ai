@@ -8,6 +8,7 @@
     <meta name="theme-color" content="#2e7d32">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
     <!-- Онбординг -->
@@ -45,7 +46,10 @@
         <div id="offline-indicator" class="offline-indicator">Офлайн-режим</div>
         <div id="header">
             <span>🌍 ТурСобытия AI</span>
-            <span id="profile-btn" style="cursor:pointer">👤</span>
+            <span id="auth-area">
+                <button id="login-btn" class="btn" style="font-size:0.8em; display:none;">Войти</button>
+                <span id="profile-btn" style="cursor:pointer; display:none;">👤</span>
+            </span>
         </div>
         <div id="filters">
             <div class="types-scroll" id="type-filters"></div>

@@ -1,6 +1,10 @@
-const userId = localStorage.getItem('userId') || 'user_' + Date.now();
-localStorage.setItem('userId', userId);
-let currentEvents = [];
+// ---------- Конфигурация Supabase (замените на свои значения) ----------
+const SUPABASE_URL = 'https://your-project.supabase.co';   // 👈 заменить
+const SUPABASE_KEY = 'your-anon-key';                       // 👈 заменить
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ---------- Глобальные переменные ----------
+let currentUser = null;
 const allTypes = [
     'еда', 'культура', 'спорт', 'дети', 'музыка', 'театр', 'выставка',
     'кино', 'ярмарка', 'природа', 'экскурсия', 'ночная_жизнь', 'мастер-класс'
@@ -12,7 +16,49 @@ const map = L.map('map').setView([55.751244, 37.618423], 12);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {attribution:'© OpenStreetMap'}).addTo(map);
 const markersLayer = L.layerGroup().addTo(map);
 
-// Онбординг
+// ---------- Авторизация ----------
+async function initAuth() {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    currentUser = session?.user;
+    updateAuthUI();
+}
+initAuth();
+
+function updateAuthUI() {
+    const loginBtn = document.getElementById('login-btn');
+    const profileBtn = document.getElementById('profile-btn');
+    if (currentUser) {
+        loginBtn.style.display = 'none';
+        profileBtn.style.display = 'inline-block';
+        profileBtn.onclick = () => alert(`Вы вошли как ${currentUser.email || 'пользователь'}`);
+    } else {
+        loginBtn.style.display = 'inline-block';
+        profileBtn.style.display = 'none';
+    }
+}
+
+document.getElementById('login-btn').addEventListener('click', async () => {
+    const provider = prompt('Выберите способ входа: google, yandex, vk, telegram');
+    if (!provider) return;
+    const { error } = await supabaseClient.auth.signInWithOAuth({ provider });
+    if (error) alert('Ошибка входа: ' + error.message);
+});
+
+// Функция fetch с токеном
+async function fetchWithAuth(url, options = {}) {
+    if (currentUser) {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (session) {
+            options.headers = {
+                ...options.headers,
+                'Authorization': `Bearer ${session.access_token}`
+            };
+        }
+    }
+    return fetch(url, options);
+}
+
+// ---------- Онбординг ----------
 function nextSlide(num) {
     document.querySelectorAll('.onboard-slide').forEach(s => s.style.display = 'none');
     document.getElementById('slide' + num).style.display = 'block';
@@ -36,16 +82,18 @@ function skipInterests() {
 }
 async function saveInterests() {
     const selected = [...document.querySelectorAll('#interests-tags .tag.selected')].map(t => t.textContent).join(',');
-    await fetch('/api/interests', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({user_id: userId, interests: selected})
-    });
+    if (currentUser) {
+        await fetchWithAuth('/api/interests', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ interests: selected })
+        });
+    }
     document.getElementById('interests-screen').style.display = 'none';
     localStorage.setItem('onboarded', '1');
 }
 
-// Фильтры типов
+// ---------- Фильтры ----------
 function buildTypeFilters() {
     const container = document.getElementById('type-filters');
     container.innerHTML = '';
@@ -67,7 +115,7 @@ function updateFilters() {
     loadEvents();
 }
 
-// Загрузка событий
+// ---------- Загрузка событий ----------
 async function loadEvents() {
     const params = new URLSearchParams({
         search: document.getElementById('search').value,
@@ -75,12 +123,10 @@ async function loadEvents() {
         date_to: document.getElementById('date_to').value,
         type: selectedType
     });
-    try {
-        const resp = await fetch('/api/events?' + params);
-        currentEvents = await resp.json();
-        renderList(currentEvents);
-        renderMarkers(currentEvents);
-    } catch(e) { console.log('Offline or error', e); }
+    const resp = await fetch('/api/events?' + params);
+    const events = await resp.json();
+    renderList(events);
+    renderMarkers(events);
 }
 
 function renderList(events) {
@@ -103,54 +149,65 @@ function renderList(events) {
             <div style="margin-top: 8px; display: flex; gap: 10px; align-items: center;">
                 <button class="attend-btn" data-id="${ev.id}">Пойду 👍</button>
                 <span class="attendees-count" id="count-${ev.id}"></span>
-                <a href="${yandexUrl}" target="_blank" class="map-link" title="Открыть в Яндекс Картах">📍Я</a>
-                <a href="${dgisUrl}" target="_blank" class="map-link" title="Открыть в 2ГИС">📍2</a>
+                <a href="${yandexUrl}" target="_blank" class="map-link" title="Яндекс Карты">📍Я</a>
+                <a href="${dgisUrl}" target="_blank" class="map-link" title="2ГИС">📍2</a>
                 <button class="share-btn" data-title="${ev.title}" data-date="${ev.date}" data-location="${ev.location}">🔗</button>
             </div>
         `;
         container.appendChild(card);
 
-        // лайк
+        // Лайк
         card.querySelector('.like-btn').addEventListener('click', async (e) => {
             e.stopPropagation();
             const btn = e.target;
             const id = ev.id;
-            await fetch('/api/like', {
-                method:'POST', headers:{'Content-Type':'application/json'},
-                body: JSON.stringify({user_id: userId, event_id: id})
-            });
-            localStorage.setItem('liked_' + id, '1');
-            btn.classList.add('liked');
-            btn.textContent = '❤️';
+            if (currentUser) {
+                const resp = await fetchWithAuth('/api/like', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ event_id: id })
+                });
+                if (resp.ok) {
+                    localStorage.setItem('liked_' + id, '1');
+                    btn.classList.add('liked');
+                    btn.textContent = '❤️';
+                } else {
+                    alert('Не удалось сохранить лайк');
+                }
+            } else {
+                localStorage.setItem('liked_' + id, '1');
+                btn.classList.add('liked');
+                btn.textContent = '❤️';
+            }
         });
 
-        // отметка "Пойду"
-        const attendBtn = card.querySelector('.attend-btn');
-        attendBtn.addEventListener('click', async (e) => {
+        // Отметка "Пойду"
+        card.querySelector('.attend-btn').addEventListener('click', async (e) => {
             e.stopPropagation();
-            await fetch('/api/attend', {
-                method:'POST', headers:{'Content-Type':'application/json'},
-                body: JSON.stringify({user_id: userId, event_id: ev.id})
-            });
-            attendBtn.classList.add('going');
-            attendBtn.textContent = '✓ Вы идёте';
+            const attendBtn = e.target;
+            if (currentUser) {
+                await fetchWithAuth('/api/attend', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ event_id: ev.id })
+                });
+                attendBtn.classList.add('going');
+                attendBtn.textContent = '✓ Вы идёте';
+            } else {
+                attendBtn.classList.add('going');
+                attendBtn.textContent = '✓ Вы идёте (локально)';
+            }
             loadAttendees(ev.id);
         });
 
-        // кнопка "Поделиться"
+        // Шеринг
         card.querySelector('.share-btn').addEventListener('click', (e) => {
             e.stopPropagation();
-            const title = e.target.dataset.title;
-            const date = e.target.dataset.date;
-            const location = e.target.dataset.location;
+            const { title, date, location } = e.target.dataset;
             if (navigator.share) {
-                navigator.share({
-                    title: title,
-                    text: `${title} (${date}) в ${location}. Приходите!`,
-                    url: window.location.href
-                });
+                navigator.share({ title, text: `${title} (${date}) в ${location}. Приходите!`, url: window.location.href });
             } else {
-                alert(`Событие: ${title}\nДата: ${date}\nМесто: ${location}\nСсылка: ${window.location.href}`);
+                alert(`${title}\n${date}\n${location}`);
             }
         });
 
@@ -176,7 +233,7 @@ function renderMarkers(events) {
     });
 }
 
-// AI Рекомендации
+// ---------- AI-рекомендации ----------
 async function openRecommendations() {
     document.getElementById('rec-modal').style.display = 'flex';
     document.getElementById('rec-content').innerHTML = '<p>Загрузка...</p>';
@@ -190,10 +247,10 @@ async function openRecommendations() {
             lon = pos.coords.longitude;
         } catch(e) {}
     }
-    const params = new URLSearchParams({ user_id: userId });
+    const params = new URLSearchParams();
     if (lat) params.append('lat', lat);
     if (lon) params.append('lon', lon);
-    const resp = await fetch('/api/ai/recommendations?' + params);
+    const resp = await fetchWithAuth('/api/ai/recommendations?' + params);
     const recs = await resp.json();
     const html = recs.map(r => `
         <div class="event-card type-${r.type}" onclick="map.setView([${r.lat},${r.lon}],15);document.getElementById('rec-modal').style.display='none'">
@@ -205,14 +262,18 @@ async function openRecommendations() {
     document.getElementById('rec-content').innerHTML = html || 'Нет рекомендаций. Поставьте лайки.';
 }
 
-// План на день
+// ---------- План на день ----------
 async function openPlanModal() {
     document.getElementById('plan-modal').style.display = 'flex';
     document.getElementById('plan-content').innerHTML = '<p>Составляем план...</p>';
     navigator.geolocation.getCurrentPosition(async pos => {
-        const resp = await fetch('/api/ai/plan', {
-            method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({user_id:userId, lat:pos.coords.latitude, lon:pos.coords.longitude})
+        const resp = await fetchWithAuth('/api/ai/plan', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                lat: pos.coords.latitude,
+                lon: pos.coords.longitude
+            })
         });
         const data = await resp.json();
         document.getElementById('plan-content').innerHTML = `<p>${data.plan}</p>`;
@@ -221,7 +282,7 @@ async function openPlanModal() {
     });
 }
 
-// Чат-бот
+// ---------- Чат-бот ----------
 document.getElementById('ai-btn').addEventListener('dblclick', () => {
     const chat = document.getElementById('chat-widget');
     chat.style.display = chat.style.display === 'flex' ? 'none' : 'flex';
@@ -234,9 +295,10 @@ async function sendChat() {
     chatMessages.innerHTML += `<div style="text-align:right; margin:5px"><b>Вы:</b> ${msg}</div>`;
     input.value = '';
     chatMessages.innerHTML += `<div style="text-align:left; margin:5px"><i>AI печатает...</i></div>`;
-    const resp = await fetch('/api/ai/chat', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({user_id: userId, message: msg})
+    const resp = await fetchWithAuth('/api/ai/chat', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ message: msg })
     });
     const data = await resp.json();
     chatMessages.removeChild(chatMessages.lastChild);
@@ -244,23 +306,27 @@ async function sendChat() {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// Бейджи
+// ---------- Бейджи ----------
 async function showBadges() {
-    const resp = await fetch('/api/badges/' + userId);
+    if (!currentUser) {
+        alert('Войдите, чтобы увидеть бейджи');
+        return;
+    }
+    const resp = await fetchWithAuth('/api/badges');
     const badges = await resp.json();
     alert('Ваши бейджи: ' + (badges.join(', ') || 'пока нет'));
 }
-document.getElementById('profile-btn').onclick = showBadges;
+document.getElementById('profile-btn').addEventListener('click', showBadges);
 
-// Офлайн-индикатор
+// ---------- Офлайн-индикатор ----------
 window.addEventListener('online', () => document.getElementById('offline-indicator').style.display = 'none');
 window.addEventListener('offline', () => document.getElementById('offline-indicator').style.display = 'block');
 if (!navigator.onLine) document.getElementById('offline-indicator').style.display = 'block';
 
-// Закрытие модалок
+// ---------- Закрытие модалок ----------
 document.querySelectorAll('.modal').forEach(m => m.addEventListener('click', function(e){ if(e.target===this) this.style.display='none'; }));
 
-// Инициализация
+// ---------- Старт ----------
 buildTypeFilters();
 if (!localStorage.getItem('onboarded')) {
     document.getElementById('main-app').style.display = 'none';
